@@ -1,5 +1,5 @@
 # AI-ChatBot
-AI ChatBot made using Python
+AI ChatBot made using Python (Work in Progress)
 
 An interactive tool designed to handle customer queries, leveraging Natural Language Processing (NLP) and sentiment analysis. Built using Python, the chatbot integrates frameworks like TensorFlow for intent recognition and NLTK for tokenization and sentiment analysis. It processes user inputs, classifies them into predefined intents using a trained neural network model, and responds with relevant, context-aware replies. 
 
