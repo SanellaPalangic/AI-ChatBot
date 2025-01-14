@@ -1,28 +1,60 @@
 import os
 import json
-from datasets import Dataset
+from sympy import symbols, Eq, solve
+from sympy.parsing.sympy_parser import standard_transformations, implicit_multiplication_application, parse_expr
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    TrainingArguments,
-    Trainer,
-    DataCollatorForLanguageModeling,
     pipeline
 )
+import re
 
-# Step 1: Prepare the Dataset
-def load_dataset(file_path):
-    """
-    Load and prepare the dataset for training. The dataset should be in JSON format.
-    """
+def normalize_text(text):
+    """Normalize text for consistent matching."""
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
+    return text
+
+# Predefined Responses
+def get_predefined_response(user_query, file_path="algebra_data.json"):
     with open(file_path, "r") as f:
-        data = json.load(f)
-    dialogues = []
-    for entry in data:
-        dialogues.append(f"User: {entry['prompt']}\nBot: {entry['response']}")
-    return Dataset.from_dict({"text": dialogues})
+        predefined_responses = json.load(f)
 
-# Step 2: Load Pretrained Model and Tokenizer
+    user_query_normalized = normalize_text(user_query)
+
+    for entry in predefined_responses:
+        if normalize_text(entry["prompt"]) == user_query_normalized:
+            return entry["response"]
+
+    return None
+
+# SymPy Solver
+def solve_algebra(problem):
+    try:
+        # Define the variable(s) used in the equation
+        x = symbols('x')
+
+        # Replace '^' with '**' for SymPy compatibility
+        problem = problem.replace("^", "**").replace("Solve", "").strip()
+
+        # Enable implicit multiplication and other transformations
+        transformations = (standard_transformations + (implicit_multiplication_application,))
+
+        # Extract and parse the equation
+        if "=" in problem:
+            left, right = problem.split("=")
+            equation = Eq(parse_expr(left.strip(), transformations=transformations), 
+                          parse_expr(right.strip(), transformations=transformations))
+        else:
+            equation = parse_expr(problem.strip(), transformations=transformations)
+
+        # Solve the equation
+        solutions = solve(equation, x)
+        return f"The solutions are: {', '.join(map(str, solutions))}"
+    except Exception as e:
+        return f"Sorry, I couldn't solve that problem. Error: {e}"
+
+# Load Pretrained Model and Tokenizer
 model_name = "microsoft/DialoGPT-medium"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -32,58 +64,7 @@ if tokenizer.pad_token is None:
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.resize_token_embeddings(len(tokenizer))  # Resize the embeddings
 
-
-# Step 3: Tokenize Dataset
-def tokenize_function(examples):
-    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
-
-dataset = load_dataset("algebra_data.json")
-tokenized_dataset = dataset.map(tokenize_function, batched=True)
-
-# Step 4: Define Data Collator
-data_collator = DataCollatorForLanguageModeling(
-    tokenizer=tokenizer,
-    mlm=False  # Not using masked language modeling; this is causal modeling
-)
-
-# Step 5: Training Arguments
-training_args = TrainingArguments(
-    output_dir="./algebra_chatbot",
-    overwrite_output_dir=True,
-    num_train_epochs=3,
-    per_device_train_batch_size=2,
-    save_steps=500,
-    save_total_limit=2,
-    logging_dir="./logs",
-    logging_steps=10,
-    evaluation_strategy="steps",
-    eval_steps=500,
-    learning_rate=5e-5,
-    warmup_steps=100
-)
-
-# Step 6: Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_dataset,
-    eval_dataset=tokenized_dataset,  # Optional: Use validation dataset if available
-    tokenizer=tokenizer,
-    data_collator=data_collator
-)
-
-# Step 7: Train the Model
-print("Starting fine-tuning...")
-trainer.train()
-print("Fine-tuning complete!")
-
-# Step 8: Save the Fine-Tuned Model
-print("Saving the fine-tuned model...")
-model.save_pretrained("./algebra_chatbot")
-tokenizer.save_pretrained("./algebra_chatbot")
-print("Model saved successfully!")
-
-# Step 9: Test the Fine-Tuned Chatbot
+# Test the Fine-Tuned Chatbot
 print("\nTesting the chatbot interactively...\n")
 chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./algebra_chatbot")
 
@@ -94,6 +75,21 @@ while True:
     if user_input.lower() in ["exit", "quit", "bye"]:
         print("Algebra Chatbot: Goodbye! Keep practicing algebra!")
         break
-    response = chatbot(f"User: {user_input}\nBot:", max_length=100, num_return_sequences=1)
-    bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
-    print(f"Algebra Chatbot: {bot_response}")
+
+    # Check for predefined responses
+    predefined_response = get_predefined_response(user_input)
+    if predefined_response:
+        print(f"Algebra Chatbot: {predefined_response}")
+    # Check for algebraic problems and solve them dynamically
+    elif "solve" in user_input.lower() or "=" in user_input:
+        print(f"Algebra Chatbot: {solve_algebra(user_input)}")
+    # Use the fine-tuned model for general questions
+    else:
+        response = chatbot(
+            f"User: {user_input}\nBot:",
+            max_length=100,
+            num_return_sequences=1,
+            truncation=True  # Add truncation explicitly
+        )
+        bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
+        print(f"Algebra Chatbot: {bot_response}")
