@@ -1,7 +1,10 @@
 [
-    {"prompt": "What is 2x + 3 = 7?", "response": "x = 2"},
-    {"prompt": "How do you simplify 4x + 3x?", "response": "4x + 3x = 7x"},
-    {"prompt": "Solve: 3x - 5 = 10.", "response": "x = 5"},
-    {"prompt": "What is the value of x if 5x + 2 = 12?", "response": "x = 2"},
-    {"prompt": "Explain: What does a variable represent?", "response": "A variable represents an unknown value in an equation."}
+    {
+        "prompt": "What is the quadratic formula?",
+        "response": "The quadratic formula is x = (-b ± sqrt(b^2 - 4ac)) / (2a)."
+    },
+    {
+        "prompt": "What is a variable?",
+        "response": "A variable represents an unknown value in an equation."
+    }
 ]
