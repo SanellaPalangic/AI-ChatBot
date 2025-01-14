@@ -1,19 +1,7 @@
-{
-  "intents": [
-    {
-      "tag": "greeting",
-      "patterns": ["Hi", "Hello", "Hey", "Good morning", "Good evening"],
-      "responses": ["Hello!", "Hi there!", "Greetings! How can I assist you?"]
-    },
-    {
-      "tag": "goodbye",
-      "patterns": ["Bye", "See you later", "Goodbye"],
-      "responses": ["Goodbye!", "Take care!", "See you soon!"]
-    },
-    {
-      "tag": "thanks",
-      "patterns": ["Thanks", "Thank you", "I appreciate it"],
-      "responses": ["You're welcome!", "Happy to help!", "Anytime!"]
-    }
-  ]
-}
+[
+    {"prompt": "What is 2x + 3 = 7?", "response": "x = 2"},
+    {"prompt": "How do you simplify 4x + 3x?", "response": "4x + 3x = 7x"},
+    {"prompt": "Solve: 3x - 5 = 10.", "response": "x = 5"},
+    {"prompt": "What is the value of x if 5x + 2 = 12?", "response": "x = 2"},
+    {"prompt": "Explain: What does a variable represent?", "response": "A variable represents an unknown value in an equation."}
+]
