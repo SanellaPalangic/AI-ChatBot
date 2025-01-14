@@ -1,108 +1,99 @@
-import nltk
-
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('vader_lexicon')
-
+import os
 import json
-import numpy as np
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    TrainingArguments,
+    Trainer,
+    DataCollatorForLanguageModeling,
+    pipeline
+)
 
-from nltk.stem import WordNetLemmatizer
-from sklearn.preprocessing import LabelEncoder
+# Step 1: Prepare the Dataset
+def load_dataset(file_path):
+    """
+    Load and prepare the dataset for training. The dataset should be in JSON format.
+    """
+    with open(file_path, "r") as f:
+        data = json.load(f)
+    dialogues = []
+    for entry in data:
+        dialogues.append(f"User: {entry['prompt']}\nBot: {entry['response']}")
+    return Dataset.from_dict({"text": dialogues})
 
-# Initialize Lemmatizer and load data
-lemmatizer = WordNetLemmatizer()
-with open('data.json') as file:
-    data = json.load(file)
+# Step 2: Load Pretrained Model and Tokenizer
+model_name = "microsoft/DialoGPT-medium"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Add a padding token if not present
+if tokenizer.pad_token is None:
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    model.resize_token_embeddings(len(tokenizer))  # Resize the embeddings
 
 
-# Preprocess data
-patterns = []
-tags = []
-responses = {}
-for intent in data['intents']:
-    for pattern in intent['patterns']:
-        tokens = nltk.word_tokenize(pattern)
-        patterns.append(tokens)
-        tags.append(intent['tag'])
-    responses[intent['tag']] = intent['responses']
+# Step 3: Tokenize Dataset
+def tokenize_function(examples):
+    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=512)
 
-# Lemmatize and encode
-words = [lemmatizer.lemmatize(w.lower()) for p in patterns for w in p if w.isalnum()]
-words = sorted(set(words))
-tags = sorted(set(tags))
+dataset = load_dataset("algebra_data.json")
+tokenized_dataset = dataset.map(tokenize_function, batched=True)
 
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
-from tensorflow.keras.optimizers import SGD
+# Step 4: Define Data Collator
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False  # Not using masked language modeling; this is causal modeling
+)
 
-# Prepare training data
-training_sentences = [" ".join(p) for p in patterns]
-training_labels = tags
-label_encoder = LabelEncoder()
-training_labels = label_encoder.fit_transform(tags)
+# Step 5: Training Arguments
+training_args = TrainingArguments(
+    output_dir="./algebra_chatbot",
+    overwrite_output_dir=True,
+    num_train_epochs=3,
+    per_device_train_batch_size=2,
+    save_steps=500,
+    save_total_limit=2,
+    logging_dir="./logs",
+    logging_steps=10,
+    evaluation_strategy="steps",
+    eval_steps=500,
+    learning_rate=5e-5,
+    warmup_steps=100
+)
 
-# Convert to bag-of-words
-def bag_of_words(sentence, words):
-    sentence_words = [lemmatizer.lemmatize(word.lower()) for word in nltk.word_tokenize(sentence)]
-    return np.array([1 if w in sentence_words else 0 for w in words])
+# Step 6: Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset,
+    eval_dataset=tokenized_dataset,  # Optional: Use validation dataset if available
+    tokenizer=tokenizer,
+    data_collator=data_collator
+)
 
-X_train = np.array([bag_of_words(" ".join(p), words) for p in patterns])
-y_train = np.array(training_labels)
+# Step 7: Train the Model
+print("Starting fine-tuning...")
+trainer.train()
+print("Fine-tuning complete!")
 
-# Build model
-model = Sequential()
-model.add(Dense(128, input_shape=(len(X_train[0]),), activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(64, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(len(tags), activation='softmax'))
+# Step 8: Save the Fine-Tuned Model
+print("Saving the fine-tuned model...")
+model.save_pretrained("./algebra_chatbot")
+tokenizer.save_pretrained("./algebra_chatbot")
+print("Model saved successfully!")
 
-# Compile model
-sgd = SGD(learning_rate=0.01, momentum=0.9, nesterov=True)
-model.compile(loss='sparse_categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
+# Step 9: Test the Fine-Tuned Chatbot
+print("\nTesting the chatbot interactively...\n")
+chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./algebra_chatbot")
 
-# Train model
-model.fit(X_train, y_train, epochs=200, batch_size=5, verbose=1)
-model.save('chatbot_model.h5')
-
-from nltk.sentiment import SentimentIntensityAnalyzer
-
-sia = SentimentIntensityAnalyzer()
-
-def get_sentiment(sentence):
-    score = sia.polarity_scores(sentence)
-    if score['compound'] > 0.2:
-        return "Positive"
-    elif score['compound'] < -0.2:
-        return "Negative"
-    else:
-        return "Neutral"
-
-from flask import Flask, request, jsonify
-import random
-from tensorflow.keras.models import load_model
-
-# Load the trained model and other data
-model = load_model('chatbot_model.h5')
-
-app = Flask(__name__)
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    user_message = request.json['message']
-    bow = bag_of_words(user_message, words)
-    prediction = model.predict(np.array([bow]))[0]
-    tag = tags[np.argmax(prediction)]
-
-    # Get a random response for the tag
-    response = random.choice(responses[tag])
-
-    # Analyze sentiment
-    sentiment = get_sentiment(user_message)
-
-    return jsonify({"response": response, "sentiment": sentiment})
-
-if __name__ == '__main__':
-    app.run(debug=True)
-
+# Interactive Chat Loop
+print("Algebra Chatbot: Hello! I can help you with basic algebra. Type 'exit' to quit.\n")
+while True:
+    user_input = input("User: ")
+    if user_input.lower() in ["exit", "quit", "bye"]:
+        print("Algebra Chatbot: Goodbye! Keep practicing algebra!")
+        break
+    response = chatbot(f"User: {user_input}\nBot:", max_length=100, num_return_sequences=1)
+    bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
+    print(f"Algebra Chatbot: {bot_response}")
