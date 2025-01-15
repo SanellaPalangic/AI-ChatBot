@@ -36,7 +36,7 @@ def solve_algebra(problem):
         # Enable implicit multiplication and other transformations
         transformations = (standard_transformations + (implicit_multiplication_application,))
 
-        # Extract and parse the equation
+        # Parse the equation
         if "=" in problem:
             left, right = problem.split("=")
             equation = Eq(parse_expr(left.strip(), transformations=transformations), 
@@ -44,10 +44,30 @@ def solve_algebra(problem):
         else:
             equation = parse_expr(problem.strip(), transformations=transformations)
 
+        # Debugging: Log the parsed equation
+        print(f"Debug: Parsed equation: {equation}")
+
         # Solve the equation
         solutions = solve(equation, x)
-        return f"The solutions are: {', '.join(map(str, solutions))}"
+
+        # Debugging: Log the solutions
+        print(f"Debug: solutions type={type(solutions)}, value={solutions}")
+
+        # Handle different types of solutions
+        if isinstance(solutions, list):
+            if len(solutions) == 0:
+                return "No solutions found."
+            else:
+                return f"The solutions are: {', '.join(map(str, solutions))}"
+        elif isinstance(solutions, (int, float, symbols)):  # Single solution
+            return f"The solution is: {solutions}"
+        else:
+            # Handle unexpected types
+            return f"Unexpected solution type: {type(solutions)} - {solutions}"
+
     except Exception as e:
+        # Debugging: Print the error
+        print(f"Debug: Error in solve_algebra: {e}")
         return f"Sorry, I couldn't solve that problem. Error: {e}"
 
 
@@ -65,14 +85,19 @@ chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./al
 
 # Unified Function to Get Bot Response
 def get_bot_response(user_input):
+    print(f"Debug: User input: {user_input}")
+
     # Check for predefined responses
     predefined_response = get_predefined_response(user_input)
     if predefined_response:
+        print(f"Debug: Predefined response: {predefined_response}")
         return predefined_response
 
-    # Check for algebraic problems and solve them dynamically
-    elif "solve" in user_input.lower() or "=" in user_input:
-        return solve_algebra(user_input)
+    # Check for algebraic problems
+    if "solve" in user_input.lower() or "=" in user_input:
+        result = solve_algebra(user_input)
+        print(f"Debug: solve_algebra result: {result}")
+        return result
 
     # Use the fine-tuned model for general questions
     else:
@@ -80,6 +105,10 @@ def get_bot_response(user_input):
             f"User: {user_input}\nBot:",
             max_length=100,
             num_return_sequences=1,
-            truncation=True  # Add truncation explicitly
+            truncation=True
         )
-        return response[0]["generated_text"].split("Bot:")[-1].strip()
+        bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
+        print(f"Debug: chatbot response: {bot_response}")
+        return bot_response
+
+   
