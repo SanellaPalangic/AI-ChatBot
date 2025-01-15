@@ -2,11 +2,7 @@ import os
 import json
 from sympy import symbols, Eq, solve
 from sympy.parsing.sympy_parser import standard_transformations, implicit_multiplication_application, parse_expr
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    pipeline
-)
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import re
 
 def normalize_text(text):
@@ -54,6 +50,7 @@ def solve_algebra(problem):
     except Exception as e:
         return f"Sorry, I couldn't solve that problem. Error: {e}"
 
+
 # Load Pretrained Model and Tokenizer
 model_name = "microsoft/DialoGPT-medium"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -64,25 +61,19 @@ if tokenizer.pad_token is None:
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.resize_token_embeddings(len(tokenizer))  # Resize the embeddings
 
-# Test the Fine-Tuned Chatbot
-print("\nTesting the chatbot interactively...\n")
 chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./algebra_chatbot")
 
-# Interactive Chat Loop
-print("Algebra Chatbot: Hello! I can help you with basic algebra. Type 'exit' to quit.\n")
-while True:
-    user_input = input("User: ")
-    if user_input.lower() in ["exit", "quit", "bye"]:
-        print("Algebra Chatbot: Goodbye! Keep practicing algebra!")
-        break
-
+# Unified Function to Get Bot Response
+def get_bot_response(user_input):
     # Check for predefined responses
     predefined_response = get_predefined_response(user_input)
     if predefined_response:
-        print(f"Algebra Chatbot: {predefined_response}")
+        return predefined_response
+
     # Check for algebraic problems and solve them dynamically
     elif "solve" in user_input.lower() or "=" in user_input:
-        print(f"Algebra Chatbot: {solve_algebra(user_input)}")
+        return solve_algebra(user_input)
+
     # Use the fine-tuned model for general questions
     else:
         response = chatbot(
@@ -91,5 +82,4 @@ while True:
             num_return_sequences=1,
             truncation=True  # Add truncation explicitly
         )
-        bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
-        print(f"Algebra Chatbot: {bot_response}")
+        return response[0]["generated_text"].split("Bot:")[-1].strip()
