@@ -2,7 +2,11 @@ import os
 import json
 from sympy import symbols, Eq, solve
 from sympy.parsing.sympy_parser import standard_transformations, implicit_multiplication_application, parse_expr
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    pipeline
+)
 import re
 
 def normalize_text(text):
@@ -36,7 +40,7 @@ def solve_algebra(problem):
         # Enable implicit multiplication and other transformations
         transformations = (standard_transformations + (implicit_multiplication_application,))
 
-        # Parse the equation
+        # Extract and parse the equation
         if "=" in problem:
             left, right = problem.split("=")
             equation = Eq(parse_expr(left.strip(), transformations=transformations), 
@@ -44,71 +48,77 @@ def solve_algebra(problem):
         else:
             equation = parse_expr(problem.strip(), transformations=transformations)
 
-        # Debugging: Log the parsed equation
+        # Debug: Print the parsed equation
         print(f"Debug: Parsed equation: {equation}")
 
         # Solve the equation
         solutions = solve(equation, x)
 
-        # Debugging: Log the solutions
-        print(f"Debug: solutions type={type(solutions)}, value={solutions}")
+        # Debug: Print the solutions
+        print(f"Debug: Solutions: {solutions}, Type: {type(solutions)}")
 
         # Handle different types of solutions
         if isinstance(solutions, list):
-            if len(solutions) == 0:
+            if not solutions:  # Empty list
                 return "No solutions found."
-            else:
+            else:  # Multiple solutions
                 return f"The solutions are: {', '.join(map(str, solutions))}"
-        elif isinstance(solutions, (int, float, symbols)):  # Single solution
+        elif isinstance(solutions, (int, float)):  # Single solution
             return f"The solution is: {solutions}"
         else:
-            # Handle unexpected types
-            return f"Unexpected solution type: {type(solutions)} - {solutions}"
+            return f"The solution is: {solutions}"  # Handle other solution types (e.g., sympy symbols)
 
     except Exception as e:
-        # Debugging: Print the error
+        # Debug: Print the error
         print(f"Debug: Error in solve_algebra: {e}")
         return f"Sorry, I couldn't solve that problem. Error: {e}"
 
 
 # Load Pretrained Model and Tokenizer
+
 model_name = "microsoft/DialoGPT-medium"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
 # Add a padding token if not present
+
 if tokenizer.pad_token is None:
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     model.resize_token_embeddings(len(tokenizer))  # Resize the embeddings
 
+# Test the Fine-Tuned Chatbot
+
+print("\nTesting the chatbot interactively...\n")
 chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./algebra_chatbot")
 
-# Unified Function to Get Bot Response
-def get_bot_response(user_input):
-    print(f"Debug: User input: {user_input}")
+# Interactive Chat Loop
+
+print("Algebra Chatbot: Hello! I can help you with basic algebra. Type 'exit' to quit.\n")
+while True:
+    user_input = input("User: ")
+    if user_input.lower() in ["exit", "quit", "bye"]:
+        print("Algebra Chatbot: Goodbye! Keep practicing algebra!")
+        break
 
     # Check for predefined responses
+    
     predefined_response = get_predefined_response(user_input)
     if predefined_response:
-        print(f"Debug: Predefined response: {predefined_response}")
-        return predefined_response
-
-    # Check for algebraic problems
-    if "solve" in user_input.lower() or "=" in user_input:
-        result = solve_algebra(user_input)
-        print(f"Debug: solve_algebra result: {result}")
-        return result
-
+        print(f"Algebra Chatbot: {predefined_response}")
+        
+    # Check for algebraic problems and solve them dynamically
+    
+    elif "solve" in user_input.lower() or "=" in user_input:
+        print(f"Algebra Chatbot: {solve_algebra(user_input)}")
+        
     # Use the fine-tuned model for general questions
+    
     else:
         response = chatbot(
             f"User: {user_input}\nBot:",
             max_length=100,
             num_return_sequences=1,
-            truncation=True
+            truncation=True  # Add truncation explicitly
         )
         bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
-        print(f"Debug: chatbot response: {bot_response}")
-        return bot_response
-
-   
+        print(f"Algebra Chatbot: {bot_response}")
