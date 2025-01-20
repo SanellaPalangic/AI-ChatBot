@@ -1,124 +1,108 @@
-import os
-import json
-from sympy import symbols, Eq, solve
-from sympy.parsing.sympy_parser import standard_transformations, implicit_multiplication_application, parse_expr
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    pipeline
-)
+import sympy as sp
 import re
+import json
 
-def normalize_text(text):
-    """Normalize text for consistent matching."""
-    text = text.lower().strip()
-    text = re.sub(r'[^\w\s]', '', text)  # Remove punctuation
-    return text
+def preprocess_equation(equation_str):
+    """Preprocess the equation to handle implicit multiplication."""
+    # Add a '*' between a number and a variable (e.g., '2x' -> '2*x')
+    equation_str = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', equation_str)
+    return equation_str
 
-# Predefined Responses
-def get_predefined_response(user_query, file_path="algebra_data.json"):
-    with open(file_path, "r") as f:
-        predefined_responses = json.load(f)
-
-    user_query_normalized = normalize_text(user_query)
-
-    for entry in predefined_responses:
-        if normalize_text(entry["prompt"]) == user_query_normalized:
-            return entry["response"]
-
-    return None
-
-# SymPy Solver
-def solve_algebra(problem):
+def solve_equation(equation_str, variable):
+    """Solve the given algebraic equation for the specified variable."""
     try:
-        # Define the variable(s) used in the equation
-        x = symbols('x')
+        # Preprocess the equation to handle implicit multiplication
+        equation_str = preprocess_equation(equation_str)
 
-        # Replace '^' with '**' for SymPy compatibility
-        problem = problem.replace("^", "**").replace("Solve", "").strip()
-
-        # Enable implicit multiplication and other transformations
-        transformations = (standard_transformations + (implicit_multiplication_application,))
-
-        # Extract and parse the equation
-        if "=" in problem:
-            left, right = problem.split("=")
-            equation = Eq(parse_expr(left.strip(), transformations=transformations), 
-                          parse_expr(right.strip(), transformations=transformations))
-        else:
-            equation = parse_expr(problem.strip(), transformations=transformations)
-
-        # Debug: Print the parsed equation
-        print(f"Debug: Parsed equation: {equation}")
+        # Normalize the equation string by ensuring proper spacing around '='
+        equation_str = equation_str.replace("=", " = ")
+        parts = equation_str.split('=')
+        if len(parts) != 2:
+            return "Error: The equation must have exactly one '=' symbol."
+        lhs, rhs = parts
+        eq = sp.Eq(sp.sympify(lhs.strip()), sp.sympify(rhs.strip()))
 
         # Solve the equation
-        solutions = solve(equation, x)
-
-        # Debug: Print the solutions
-        print(f"Debug: Solutions: {solutions}, Type: {type(solutions)}")
-
-        # Handle different types of solutions
-        if isinstance(solutions, list):
-            if not solutions:  # Empty list
-                return "No solutions found."
-            else:  # Multiple solutions
-                return f"The solutions are: {', '.join(map(str, solutions))}"
-        elif isinstance(solutions, (int, float)):  # Single solution
-            return f"The solution is: {solutions}"
-        else:
-            return f"The solution is: {solutions}"  # Handle other solution types (e.g., sympy symbols)
-
+        solution = sp.solve(eq, sp.Symbol(variable))
+        if not solution:
+            return "No solutions"
+        return solution
     except Exception as e:
-        # Debug: Print the error
-        print(f"Debug: Error in solve_algebra: {e}")
-        return f"Sorry, I couldn't solve that problem. Error: {e}"
+        return f"Error: {e}"
 
+def simplify_expression(expression_str):
+    """Simplify the given algebraic expression."""
+    try:
+        # Preprocess the expression to handle implicit multiplication
+        expression_str = preprocess_equation(expression_str)
 
-# Load Pretrained Model and Tokenizer
+        # Simplify the expression
+        simplified = sp.simplify(sp.sympify(expression_str))
+        return simplified
+    except Exception as e:
+        return f"Error: {e}"
 
-model_name = "microsoft/DialoGPT-medium"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
+def load_prompts(file_path):
+    """Load predefined prompts and responses from a JSON file."""
+    with open(file_path, 'r') as file:
+        return json.load(file)
 
-# Add a padding token if not present
+def respond_to_prompt(user_input, prompts):
+    """Check if user input matches any predefined prompt and return a response."""
+    for item in prompts:
+        if item['prompt'].lower() in user_input.lower():
+            return item['response']
+    return None
 
-if tokenizer.pad_token is None:
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    model.resize_token_embeddings(len(tokenizer))  # Resize the embeddings
+def chatbot():
+    """Run the algebra-solving chatbot."""
+    prompts = load_prompts('algebra_data.json')
+    print("Welcome to the Algebra Solving Chatbot!")
+    print("You can ask me to solve equations, simplify expressions, or general questions about algebra.")
+    print("Type 'exit' to leave the chatbot.")
 
-# Test the Fine-Tuned Chatbot
+    while True:
+        user_input = input("\nEnter your question: ").strip()
 
-print("\nTesting the chatbot interactively...\n")
-chatbot = pipeline("text-generation", model="./algebra_chatbot", tokenizer="./algebra_chatbot")
+        if user_input.lower() == 'exit':
+            print("Goodbye! Have a great day.")
+            break
 
-# Interactive Chat Loop
+        # Check for predefined prompts
+        prompt_response = respond_to_prompt(user_input, prompts)
+        if prompt_response:
+            print(prompt_response)
+            continue
 
-print("Algebra Chatbot: Hello! I can help you with basic algebra. Type 'exit' to quit.\n")
-while True:
-    user_input = input("User: ")
-    if user_input.lower() in ["exit", "quit", "bye"]:
-        print("Algebra Chatbot: Goodbye! Keep practicing algebra!")
-        break
+        if 'solve' in user_input.lower():
+            try:
+                # Extract the equation and variable from the input
+                print("For example, to solve '2*x + 3 = 7' for x, type: solve 2*x + 3 = 7 for x")
+                equation_part = user_input.split('solve', 1)[1].strip()
+                if 'for' not in equation_part:
+                    print("Error: Please specify the variable using 'for'.")
+                    continue
+                equation, variable_part = equation_part.rsplit('for', 1)
+                variable = variable_part.strip()
 
-    # Check for predefined responses
-    
-    predefined_response = get_predefined_response(user_input)
-    if predefined_response:
-        print(f"Algebra Chatbot: {predefined_response}")
-        
-    # Check for algebraic problems and solve them dynamically
-    
-    elif "solve" in user_input.lower() or "=" in user_input:
-        print(f"Algebra Chatbot: {solve_algebra(user_input)}")
-        
-    # Use the fine-tuned model for general questions
-    
-    else:
-        response = chatbot(
-            f"User: {user_input}\nBot:",
-            max_length=100,
-            num_return_sequences=1,
-            truncation=True  # Add truncation explicitly
-        )
-        bot_response = response[0]["generated_text"].split("Bot:")[-1].strip()
-        print(f"Algebra Chatbot: {bot_response}")
+                # Solve the equation
+                solution = solve_equation(equation.strip(), variable)
+                print(f"Solution: {solution}")
+            except Exception as e:
+                print(f"Error: {e}")
+        elif 'simplify' in user_input.lower():
+            try:
+                # Extract the expression from the input
+                print("For example, to simplify '2*x + 3*x', type: simplify 2*x + 3*x")
+                expression = user_input.split('simplify', 1)[1].strip()
+
+                # Simplify the expression
+                simplified = simplify_expression(expression)
+                print(f"Simplified Expression: {simplified}")
+            except Exception as e:
+                print(f"Error: {e}")
+        else:
+            print("I didn't understand that. Please ask me to solve or simplify an expression.")
+
+if __name__ == "__main__":
+    chatbot()
